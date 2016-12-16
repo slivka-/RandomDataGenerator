@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 
 namespace RDG
@@ -9,7 +10,9 @@ namespace RDG
     class Program
     {
         private static List<string> commandList;
+        private static string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), @"GenSource\");
 
+        private static string schema;
         private static readonly DateTime start = new DateTime(1995, 1, 1);
         private static readonly int range = (DateTime.Today - start).Days;
 
@@ -19,22 +22,29 @@ namespace RDG
 
         private static Dictionary<string, List<string>> pkDict = new Dictionary<string, List<string>>();
 
+        private static Dictionary<string, List<string>> unusedPkDict = new Dictionary<string, List<string>>();
+
         private static Dictionary<string, List<string>> genValDict = new Dictionary<string, List<string>>();
 
         private static void LoadLists()
         {
-            genValDict.Add("COUNTRY", File.ReadAllLines(@"D:\DBGEN\countries.txt").Select(x => x.Split(',')[1]).ToList());
-            genValDict.Add("CITY", File.ReadAllLines(@"D:\DBGEN\cities.txt").ToList());
-            genValDict.Add("NAME", File.ReadAllLines(@"D:\DBGEN\firstnames.txt").ToList());
-            genValDict.Add("SURNAME", File.ReadAllLines(@"D:\DBGEN\lastnames.txt").ToList());
-            genValDict.Add("LANGUAGE", File.ReadAllLines(@"D:\DBGEN\languages.txt").ToList());
-            genValDict.Add("COMPANY", File.ReadAllLines(@"D:\DBGEN\company.txt").ToList());
+            genValDict.Add("COUNTRY", File.ReadAllLines(Path.Combine(path,"countries.txt")).Select(x => x.Split(',')[1]).ToList());
+            genValDict.Add("CITY", File.ReadAllLines(Path.Combine(path, "cities.txt")).ToList());
+            genValDict.Add("NAME", File.ReadAllLines(Path.Combine(path, "firstnames.txt")).ToList());
+            genValDict.Add("SURNAME", File.ReadAllLines(Path.Combine(path, "lastnames.txt")).ToList());
+            genValDict.Add("LANGUAGE", File.ReadAllLines(Path.Combine(path, "languages.txt")).ToList());
+            genValDict.Add("COMPANY", File.ReadAllLines(Path.Combine(path, "company.txt")).ToList());
             genValDict.Add("SEX", new List<string> { "MALE", "FEMALE" });
+            genValDict.Add("USERNAME", File.ReadAllLines(Path.Combine(path, "usernames.txt")).ToList());
+            genValDict.Add("TITLE", File.ReadAllLines(Path.Combine(path, "titles.txt")).ToList());
         }
 
-        private static string GetRandomFromList(List<string> list)
+        private static string GetRandomFromList(List<string> list, bool addNum = false)
         {
-            return list[rnd.Next(0, list.Count)];
+            if(!addNum)
+                return list[rnd.Next(0, list.Count)];
+            else
+                return list[rnd.Next(0, list.Count)] + rnd.Next(1000, 9999);
         }
 
         private static string GetUniqueRandomFromList(List<string> list)
@@ -42,6 +52,13 @@ namespace RDG
             List<string> unused = list.Except(usedRecords).ToList();
             string selected = unused[rnd.Next(0, unused.Count)];
             usedRecords.Add(selected);
+            return selected;
+        }
+
+        private static string GetUniqueRandomFromPKList(String name)
+        {
+            string selected = unusedPkDict[name][rnd.Next(0, unusedPkDict[name].Count)];
+            unusedPkDict[name].Remove(selected);
             return selected;
         }
 
@@ -66,6 +83,8 @@ namespace RDG
                 output += "NULL);";
             else if (Int32.TryParse(values.Last(), out dummy))
                 output += values.Last() + ");";
+            else if (regex.Match(values.Last()).Success)
+                output += "to_date('" + values.Last() + "','DD.MM.YYYY'));";
             else
                 output += "'" + values.Last() + "');";
 
@@ -90,7 +109,7 @@ namespace RDG
 
         private static void LoadCommandFile()
         {
-            commandList = File.ReadAllLines(@"D:\DBGEN\commands.txt").Where(x=>!x.StartsWith("#") && !x.Equals("")).ToList();
+            commandList = File.ReadAllLines(Path.Combine(path, "commands.txt")).Where(x=>!x.StartsWith("#") && !x.Equals("")).ToList();
 
             if (commandList[0].Split('=')[1] == null)
             {
@@ -116,6 +135,12 @@ namespace RDG
 
             foreach (string command in commandList)
             {
+                unusedPkDict = new Dictionary<string, List<string>>();
+                foreach (KeyValuePair<string,List<string>> list in pkDict)
+                {
+                    unusedPkDict.Add(list.Key, new List<string>(list.Value));
+                }
+                //unusedPkDict = new Dictionary<string, List<string>>(pkDict);
                 usedRecords = new List<string>();
                 commandParts = command.Split(',');
                 tablename = commandParts[0];
@@ -152,14 +177,19 @@ namespace RDG
                                         if (strGenDetail[0] == "")
                                             outputValue = GetRandomFromList(pkDict[strGenType[0]]);
                                         if (strGenDetail[0] == "U")
-                                            outputValue = GetUniqueRandomFromList(pkDict[strGenType[0]]);
+                                            outputValue = GetUniqueRandomFromPKList(strGenType[0]);
                                     }
                                     else
                                     {
                                         if (strGenDetail[0] == "")
-                                            outputValue = GetRandomFromList(genValDict[strGenType[0]]);
+                                            if (strGenType[0].Equals("USERNAME", StringComparison.OrdinalIgnoreCase))
+                                                outputValue = GetRandomFromList(genValDict[strGenType[0]], true);
+                                            else if (strGenType[0].Equals("CITY", StringComparison.OrdinalIgnoreCase))
+                                                outputValue = GetRandomFromList(genValDict[strGenType[0]]) + getRandomString(4);
+                                            else
+                                                outputValue = GetRandomFromList(genValDict[strGenType[0]]);
                                         if (strGenDetail[0] == "U")
-                                            outputValue = GetUniqueRandomFromList(genValDict[strGenType[0]]) + getRandomString(3);
+                                            outputValue = GetUniqueRandomFromList(genValDict[strGenType[0]]);
                                     }
                                     if (strGenDetail.Length > 1)
                                     {
@@ -203,7 +233,7 @@ namespace RDG
                 allLines.Add("--===========================================================================");
                 Console.WriteLine("DONE " + tablename);
             }
-            File.WriteAllLines(@"D:\DBGEN\insert.sql", allLines);
+            File.WriteAllLines("insert.sql", allLines);
         }
 
         static void Main(string[] args)
