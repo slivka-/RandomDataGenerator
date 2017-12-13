@@ -29,7 +29,13 @@ namespace RDG
 
         private static Dictionary<string, List<string>> genValDict = new Dictionary<string, List<string>>();
 
-        private static readonly string DBNAME = "ZDB_TELCOM";
+        private static string DBNAME;
+
+        private static string InstanceName;
+
+        private static string DbUser;
+
+        private static string DbPass;
 
         private static void LoadLists()
         {
@@ -129,7 +135,7 @@ namespace RDG
 
         private static string getRandomString(int length)
         {
-            string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ.,;:";
+            string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ";
             string output = "";
             for (int i = 0; i < length; i++)
             {
@@ -160,6 +166,9 @@ namespace RDG
 
         private static void ExecuteCommands()
         {
+            int tabDist = 0;
+            List<string> allTableNames = new List<string>();
+            List<string> bashCommands = new List<string>();
             List<string> allLines = new List<string>();
             string[] commandParts;
 
@@ -179,13 +188,13 @@ namespace RDG
                 {
                     unusedPkDict.Add(list.Key, new List<string>(list.Value));
                 }
-                //unusedPkDict = new Dictionary<string, List<string>>(pkDict);
                 usedRecords = new List<string>();
                 var lineParts = command.Split(';');
                 List<string> columns = lineParts[1].Split(',').ToList();
                 isIdentity = columns.Contains("ID");
                 commandParts = lineParts[0].Split(',');
                 tablename = commandParts[0];
+                allTableNames.Add(tablename);
                 pkList = new List<string>();
                 int idCounter = 0;
                 if(isIdentity)
@@ -280,18 +289,49 @@ namespace RDG
                     allLines.Add(string.Format("SELECT {0} FROM {1}.{2}.{3};", string.Join(",", columns), DBNAME, schema.Trim(), tablename));
                     allLines.Add(string.Format("SET IDENTITY_INSERT {0}.{1}.{2} OFF;", DBNAME, schema.Trim(), tablename));
                 }
-                File.WriteAllLines(tablename.Replace('"',' ')+"_insert.sql", allLines);
+
+                string tabToWrite = tablename.Replace('"', ' ');
+                if (!allTableNames.Contains(tablename))
+                    tabToWrite = tabToWrite + tabDist++;
+                File.WriteAllLines(@"GenResult\"+tabToWrite + "_insert.sql", allLines);
                 allLines.Clear();
-                //allLines.Add("--===========================================================================");
-                Console.WriteLine("DONE " + tablename);
+                bashCommands.Add(String.Format(@"sqlcmd -S {0} -U {1} -P {2} -i {3}_insert.sql -o {3}_log.txt",InstanceName,DbUser,DbPass, tabToWrite));
+
+                Console.WriteLine("DONE " + tabToWrite);
             }
-            //File.WriteAllLines("insert.sql", allLines);
+            File.WriteAllLines(@"GenResult\insert_cmd.bat", bashCommands);
+        }
+
+        private static void LoadDBInfo()
+        {
+
+            var dbInfo = File.ReadAllLines(Path.Combine(path, "dbInfo.txt"));
+            foreach (string s in dbInfo)
+            {
+                var parts = s.Split('=');
+                switch (parts[0])
+                {
+                    case "INSTANCE":
+                        InstanceName = parts[1];
+                        break;
+                    case "DATABASE":
+                        DBNAME = parts[1];
+                        break;
+                    case "USER":
+                        DbUser = parts[1];
+                        break;
+                    case "PASSWORD":
+                        DbPass = parts[1];
+                        break;
+                }
+            }
         }
 
         static void Main(string[] args)
         {
             Stopwatch s = new Stopwatch();
             s.Start();
+            LoadDBInfo();
             LoadLists();
             LoadCommandFile();
             ExecuteCommands();

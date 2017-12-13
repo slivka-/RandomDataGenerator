@@ -79,6 +79,9 @@
     <Content Include="GenSource\countries.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="GenSource\dbInfo.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="GenSource\firstnames.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
