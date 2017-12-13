@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -9,6 +10,8 @@ namespace RDG
 {
     class Program
     {
+        private static int insertCounter = 0;
+
         private static List<string> commandList;
         private static string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), @"GenSource\");
 
@@ -25,6 +28,8 @@ namespace RDG
         private static Dictionary<string, List<string>> unusedPkDict = new Dictionary<string, List<string>>();
 
         private static Dictionary<string, List<string>> genValDict = new Dictionary<string, List<string>>();
+
+        private static readonly string DBNAME = "ZDB_TELCOM";
 
         private static void LoadLists()
         {
@@ -75,7 +80,7 @@ namespace RDG
                 else if (Int32.TryParse(values[i], out dummy))
                     output += values[i] + ",";
                 else if (regex.Match(values[i]).Success)
-                    output +="to_date('" + values[i] + "','DD.MM.YYYY'),";
+                    output += "convert(datetime,'" + values[i] + "',104),";
                 else
                     output += "'" + values[i] + "',";
             }
@@ -84,16 +89,47 @@ namespace RDG
             else if (Int32.TryParse(values.Last(), out dummy))
                 output += values.Last() + ");";
             else if (regex.Match(values.Last()).Success)
-                output += "to_date('" + values.Last() + "','DD.MM.YYYY'));";
+                output += "convert(datetime,'" + values.Last() + "',104));";
             else
                 output += "'" + values.Last() + "');";
 
+            insertCounter++;
+            return output;
+        }
+
+        private static string generateIdentityInsert(string table,List<string> columns, List<string> values)
+        {
+            Regex regex = new Regex(@"\d\d\.\d\d\.\d\d\d\d");
+            string output = "INSERT INTO "+DBNAME+ "." + schema.Trim() + "." + table + " ("+string.Join(",",columns)+")VALUES(";
+
+            int dummy;
+            for (int i = 0; i < values.Count - 1; i++)
+            {
+                if (values[i].Equals("NULL"))
+                    output += "NULL,";
+                else if (Int32.TryParse(values[i], out dummy))
+                    output += values[i] + ",";
+                else if (regex.Match(values[i]).Success)
+                    output += "convert(datetime,'" + values[i] + "',104),";
+                else
+                    output += "'" + values[i] + "',";
+            }
+            if (values.Last().Equals("NULL"))
+                output += "NULL);";
+            else if (Int32.TryParse(values.Last(), out dummy))
+                output += values.Last() + ");";
+            else if (regex.Match(values.Last()).Success)
+                output += "convert(datetime,'" + values.Last() + "',104));";
+            else
+                output += "'" + values.Last() + "');";
+
+            insertCounter++;
             return output;
         }
 
         private static string getRandomString(int length)
         {
-            string chars = "abcdefghijklmnopqrstuvwxyz";
+            string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ.,;:";
             string output = "";
             for (int i = 0; i < length; i++)
             {
@@ -135,6 +171,9 @@ namespace RDG
 
             foreach (string command in commandList)
             {
+                bool isIdentity = false;
+                allLines.Add("USE " + DBNAME+";");
+                
                 unusedPkDict = new Dictionary<string, List<string>>();
                 foreach (KeyValuePair<string,List<string>> list in pkDict)
                 {
@@ -142,11 +181,15 @@ namespace RDG
                 }
                 //unusedPkDict = new Dictionary<string, List<string>>(pkDict);
                 usedRecords = new List<string>();
-                commandParts = command.Split(',');
+                var lineParts = command.Split(';');
+                List<string> columns = lineParts[1].Split(',').ToList();
+                isIdentity = columns.Contains("ID");
+                commandParts = lineParts[0].Split(',');
                 tablename = commandParts[0];
                 pkList = new List<string>();
                 int idCounter = 0;
-
+                if(isIdentity)
+                    allLines.Add(string.Format("SET IDENTITY_INSERT {0}.{1}.{2} ON;", DBNAME,schema.Trim(),tablename));
                 if (!Int32.TryParse(commandParts[1],out recCount))
                     throw new Exception();
                 for (int i = 0; i < recCount; i++)
@@ -219,8 +262,10 @@ namespace RDG
                         if (j == 2)
                             pkList.Add(outputValue);
                     }
-
-                    allLines.Add(generateInsert(tablename, values));
+                    if (isIdentity)
+                        allLines.Add(generateIdentityInsert(tablename,columns,values));
+                    else
+                        allLines.Add(generateInsert(tablename, values));
                 }
                 try
                 {
@@ -230,17 +275,29 @@ namespace RDG
                 {
                     pkDict[tablename] = new List<string>(pkDict[tablename].Concat(pkList).ToList());
                 }
-                allLines.Add("--===========================================================================");
+                if (isIdentity)
+                {
+                    allLines.Add(string.Format("SELECT {0} FROM {1}.{2}.{3};", string.Join(",", columns), DBNAME, schema.Trim(), tablename));
+                    allLines.Add(string.Format("SET IDENTITY_INSERT {0}.{1}.{2} OFF;", DBNAME, schema.Trim(), tablename));
+                }
+                File.WriteAllLines(tablename.Replace('"',' ')+"_insert.sql", allLines);
+                allLines.Clear();
+                //allLines.Add("--===========================================================================");
                 Console.WriteLine("DONE " + tablename);
             }
-            File.WriteAllLines("insert.sql", allLines);
+            //File.WriteAllLines("insert.sql", allLines);
         }
 
         static void Main(string[] args)
         {
+            Stopwatch s = new Stopwatch();
+            s.Start();
             LoadLists();
             LoadCommandFile();
             ExecuteCommands();
+            s.Stop();
+            Console.WriteLine("Wygenerowano {0} rekordów w {1}", insertCounter, s.Elapsed);
+            Console.ReadLine();
         }
     }
 }
