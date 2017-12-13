@@ -166,6 +166,7 @@ namespace RDG
 
         private static void ExecuteCommands()
         {
+            Directory.CreateDirectory("GenResult");
             int tabDist = 0;
             List<string> allTableNames = new List<string>();
             List<string> bashCommands = new List<string>();
@@ -194,7 +195,6 @@ namespace RDG
                 isIdentity = columns.Contains("ID");
                 commandParts = lineParts[0].Split(',');
                 tablename = commandParts[0];
-                allTableNames.Add(tablename);
                 pkList = new List<string>();
                 int idCounter = 0;
                 if(isIdentity)
@@ -291,8 +291,9 @@ namespace RDG
                 }
 
                 string tabToWrite = tablename.Replace('"', ' ');
-                if (!allTableNames.Contains(tablename))
+                if (allTableNames.Contains(tablename))
                     tabToWrite = tabToWrite + tabDist++;
+                allTableNames.Add(tablename);
                 File.WriteAllLines(@"GenResult\"+tabToWrite + "_insert.sql", allLines);
                 allLines.Clear();
                 bashCommands.Add(String.Format(@"sqlcmd -S {0} -U {1} -P {2} -i {3}_insert.sql -o {3}_log.txt",InstanceName,DbUser,DbPass, tabToWrite));
