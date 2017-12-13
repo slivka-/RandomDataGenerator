@@ -251,4 +251,4 @@ paket-files/
 .idea/
 *.sln.iml
 
-GenSource/dbInfo.txt
+RDG/GenSource/dbInfo.txt
